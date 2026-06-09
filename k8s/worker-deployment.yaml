@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: taskflow
+  labels:
+    app: worker
+    tier: backend
+spec:
+  replicas: 2          # 2 workers competing for jobs from the Redis queue
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+        tier: backend
+    spec:
+      # ── Graceful shutdown ─────────────────────────────────────────────────
+      # Give the worker up to 60s to finish the current job before K8s kills it.
+      # Our worker.py already handles SIGTERM — this makes K8s respect that.
+      terminationGracePeriodSeconds: 60
+
+      containers:
+        - name: worker
+          image: taskflow-worker:latest
+          imagePullPolicy: Never       # use the image built inside minikube
+
+          # ── Environment variables ─────────────────────────────────────────
+          # Pull non-sensitive config from the ConfigMap
+          envFrom:
+            - configMapRef:
+                name: taskflow-config
+            - secretRef:
+                name: taskflow-secret
+
+          # ── Resources ─────────────────────────────────────────────────────
+          # Workers do CPU work (processing jobs) so give them a bit more CPU
+          resources:
+            requests:
+              cpu: "100m"        # guaranteed 0.1 core
+              memory: "64Mi"     # Python worker is lightweight
+            limits:
+              cpu: "500m"        # max 0.5 core during heavy processing
+              memory: "128Mi"
+
+          # ── Liveness probe ────────────────────────────────────────────────
+          # The worker has no HTTP server, so we use an exec probe instead.
+          # It checks the process is alive by running a command inside the container.
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import redis, os; r=redis.Redis(host=os.getenv('REDIS_HOST','redis')); r.ping()"
+            initialDelaySeconds: 20    # wait for Redis connection to establish
+            periodSeconds: 30
+            failureThreshold: 3
+
+          # ── Lifecycle hook ────────────────────────────────────────────────
+          # Sends SIGTERM before SIGKILL, giving worker.py time to finish job
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]  # small buffer before SIGTERM

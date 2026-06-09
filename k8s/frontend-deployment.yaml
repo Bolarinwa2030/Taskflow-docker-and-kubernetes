@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: taskflow
+  labels:
+    app: frontend
+    tier: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  
+
+  # ROlling Update strategy
+  # --- For controlling how k8s replaces old pods with new one during a deployment
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  template:
+    metadata:
+      labels:
+        app: frontend
+        tier: web
+
+    spec:
+      containers:
+        - name: frontend
+          image: taskflow-frontend:latest
+          imagePullPolicy: Never
+
+          ports:
+            - containerPort: 80
+              name: http
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+          
+
+          # ----- Readiness Probe ------
+          # k8s will not send traffic until this passes
+          # For nginix /health return 200 immediately on startup
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 2
+          
+
+          # --- Liveness probe -----
+          # --- If nginx stops responding, k8s restrat the container
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 3

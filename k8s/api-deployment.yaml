@@ -28,3 +28,20 @@ spec:
             limits:
               cpu: "500m"
               memory: "256Mi"
+          
+          # CHecking Liveness and readiness 
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15 # wait 15s before first check
+            periodSeconds: 20 # chekc every 20s
+            failureThreshold: # restart after 3 consecutive fails
+          
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 2 # pull from load blancer after 2 fails
